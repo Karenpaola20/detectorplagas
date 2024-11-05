@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Detección de Plagas en Frutas y Plantas</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      line-height: 1.6;
+      margin: 0;
+      padding: 0;
+      background-color: #e9f5e9;
+      color: #34495e;
+    }
+    .contenedor {
+      max-width: 800px;
+      padding: 30px;
+      margin: 0 auto;
+      background-color: #ffffff;
+      box-shadow: 0 4px 20px rgba(0, 128, 0, 0.3);
+      border-radius: 10px;
+      text-align: center;
+    }
+    h1 {
+      font-size: 2rem;
+      margin-bottom: 20px;
+      color: #27ae60;
+    }
+    #imagenPlanta, #videoStream {
+      display: block;
+      margin: 20px auto;
+      max-width: 100%;
+      max-height: 300px;
+      border-radius: 8px;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    }
+    .boton {
+      display: inline-block;
+      margin: 10px;
+      padding: 10px 20px;
+      border: none;
+      border-radius: 5px;
+      background-color: #27ae60;
+      color: #fff;
+      cursor: pointer;
+      font-size: 1rem;
+      transition: background-color 0.3s ease;
+    }
+    .boton:hover {
+      background-color: #1e8449;
+    }
+    #resultadoAnalisis {
+      margin-top: 30px;
+      font-family: Arial, sans-serif;
+      background-color: #f2f9f2;
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow: 0 0 5px rgba(0,0,0,0.1);
+    }
+    .loading {
+      color: #666;
+      font-size: 1.2rem;
+      text-align: center;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="contenedor">
+    <h1>Detección de Plagas en Frutas y Plantas</h1>
+    <input type="file" id="inputImagen" accept="image/*" class="boton">
+    <button type="button" id="botonCamara" class="boton">Tomar Foto</button>
+    <video id="videoStream" autoplay style="display: none;"></video>
+    <img id="imagenPlanta" src="/api/placeholder/400/300" alt="Imagen de la planta o fruta">
+    <button type="button" id="botonAnalizar" class="boton">Analizar Imagen</button>
+    <div id="resultadoAnalisis"></div> 
+  </div>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "@google/generative-ai": "https://esm.run/@google/generative-ai"
+      }
+    }
+  </script>
+
+  <script type="module">
+    import { GoogleGenerativeAI } from "@google/generative-ai";
+    const clave = "AIzaSyAzSRphbn7QyM-9wIcxLTwHlgjlPaPg5oc";
+
+    const genAI = new GoogleGenerativeAI(clave);
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+    const inputImagen = document.querySelector("#inputImagen");
+    const imagenPlanta = document.querySelector("#imagenPlanta");
+    const botonCamara = document.querySelector("#botonCamara");
+    const videoStream = document.querySelector("#videoStream");
+    const botonAnalizar = document.querySelector("#botonAnalizar");
+    const resultadoAnalisis = document.querySelector("#resultadoAnalisis");
+
+    let streaming = false;
+
+    inputImagen.addEventListener("change", (event) => {
+      const file = event.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          imagenPlanta.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+        videoStream.style.display = "none";
+        imagenPlanta.style.display = "block";
+      }
+    });
+
+    botonCamara.addEventListener("click", () => {
+      if (!streaming) {
+        navigator.mediaDevices.getUserMedia({ video: true })
+          .then((stream) => {
+            videoStream.srcObject = stream;
+            videoStream.style.display = "block";
+            imagenPlanta.style.display = "none";
+            streaming = true;
+          })
+          .catch((err) => {
+            alert("Error al acceder a la cámara: " + err);
+          });
+      } else {
+        capturarFoto();
+      }
+    });
+
+    function capturarFoto() {
+      const canvas = document.createElement("canvas");
+      canvas.width = videoStream.videoWidth;
+      canvas.height = videoStream.videoHeight;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(videoStream, 0, 0, canvas.width, canvas.height);
+      imagenPlanta.src = canvas.toDataURL("image/jpeg");
+      imagenPlanta.style.display = "block";
+      videoStream.style.display = "none";
+      videoStream.srcObject.getTracks().forEach(track => track.stop());
+      streaming = false;
+    }
+
+    botonAnalizar.addEventListener("click", async () => {
+      if (imagenPlanta.src === "/api/placeholder/400/300") {
+        resultadoAnalisis.innerHTML = "<p class='loading'>Por favor, selecciona o toma una imagen primero.</p>";
+        return;
+      }
+
+      desactivarBoton();
+      resultadoAnalisis.innerHTML = "<p class='loading'>Analizando la imagen...</p>";
+
+      try {
+        const imageData = await getImageData(imagenPlanta);
+        const result = await model.generateContent([
+          "Analiza la imagen proporcionada y responde las siguientes preguntas:\n" +
+          "1. ¿La planta, fruta o verdura presenta alguna plaga?\n" +
+          "2. Si presenta una plaga, indica cuál es y descríbela en detalle.\n" +
+          "3. Razones comunes por las que esta plaga afecta la planta/fruta.\n" +
+          "4. Posibles soluciones para eliminar o controlar la plaga.\n" +
+          "5. Si no tiene plagas, indica que la planta/fruta está sana.\n" +
+          "Presenta la información en un formato estructurado con secciones usando HTML.",
+          imageData
+        ]);
+        const response = await result.response;
+        const text = response.text();
+        resultadoAnalisis.innerHTML = text;
+      } catch (error) {
+        resultadoAnalisis.innerHTML = '<p class="loading">Hubo un problema al analizar la imagen: ' + error.message + '</p>';
+      }
+
+      activarBoton();
+    });
+
+    async function getImageData(img) {
+      return new Promise((resolve) => {
+        const canvas = document.createElement("canvas");
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0);
+        canvas.toBlob((blob) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve({
+            inlineData: {
+              data: reader.result.split(",")[1],
+              mimeType: "image/jpeg"
+            }
+          });
+          reader.readAsDataURL(blob);
+        }, "image/jpeg");
+      });
+    }
+
+    function desactivarBoton() {
+      botonAnalizar.disabled = true;
+      botonAnalizar.innerText = "Analizando...";
+    }
+
+    function activarBoton() {
+      botonAnalizar.disabled = false;
+      botonAnalizar.innerText = "Analizar Imagen";
+    }
+  </script>
+</body>
+</html>
